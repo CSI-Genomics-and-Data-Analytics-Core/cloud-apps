@@ -1,0 +1,162 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Windows EC2 instance
+Parameters:
+  hdSize:
+    Type: Number
+    Default: 500
+    Description: Size of the HD in GB
+  instanceType:
+    Type: String
+    Default: r5.4xlarge
+    AllowedValues:
+      - r5.4xlarge
+      - r5.8xlarge
+      - c5.12xlarge
+      - c5.18xlarge
+    Description: EC2 instance type (r types are memory optimized, and c types are compute optimized)
+  keyName:
+    Type: "AWS::EC2::KeyPair::KeyName"
+    Description: Name of an existing EC2 KeyPair to enable access to the instance
+  userData:
+    Type: String
+    Default: ""
+    Description: Base64-encoded user data to provide when launching the instance
+Mappings:
+  RegionAmi:
+    ap-northeast-1:
+      ami: ami-04f69ab2dd2960278
+    ap-northeast-2:
+      ami: ami-078ca97446424ed41
+    ap-northeast-3:
+      ami: ami-03164caf29c26b6b0
+    ap-south-1:
+      ami: ami-08abb3eeacc61972d
+    ap-southeast-1:
+      ami: ami-0df6af18544021a72
+    ap-southeast-2:
+      ami: ami-0b79ab0b8cfba7ecd
+    ca-central-1:
+      ami: ami-03030fa8fa4651e8b
+    eu-central-1:
+      ami: ami-05705f8465db448b7
+    eu-north-1:
+      ami: ami-0c28bd8f1dd39d667
+    eu-west-1:
+      ami: ami-00c896faf296575ab
+    eu-west-2:
+      ami: ami-004128c5853c91821
+    eu-west-3:
+      ami: ami-06ce55df7975baa3b
+    sa-east-1:
+      ami: ami-0c05bb4354b85796a
+    us-east-1:
+      ami: ami-0be0e902919675894
+    us-east-2:
+      ami: ami-060b1c20c93e475fd
+    us-west-1:
+      ami: ami-0c6269b2ddb61bb2e
+    us-west-2:
+      ami: ami-05044d26cbbf3c8cf
+Resources:
+  winVPC:
+    Type: "AWS::EC2::VPC"
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      Tags:
+        - Key: Name
+          Value: WindowsVPC
+
+  winSN:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref winVPC
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+          - Key: Name
+            Value: WindowsSubnet
+  winIG:
+    Type: "AWS::EC2::InternetGateway"
+    Properties:
+      Tags:
+        - Key: Name
+          Value: WindowsIG
+  IGtoInternet:
+    Type: "AWS::EC2::VPCGatewayAttachment"
+    Properties:
+      VpcId: !Ref winVPC
+      InternetGatewayId: !Ref winIG
+  winRT:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref winVPC
+      Tags:
+        - Key: Name
+          Value: WindowsRT
+  winRoute:
+    Type: "AWS::EC2::Route"
+    DependsOn: IGtoInternet
+    Properties:
+      RouteTableId: !Ref winRT
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref winIG
+  winSubnetRouteTableAssociation:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId: !Ref winSN
+      RouteTableId: !Ref winRT
+  NatGW:
+    Type: "AWS::EC2::NatGateway"
+    DependsOn: NatIP
+    Properties:
+      AllocationId: !GetAtt NatIP.AllocationId
+      SubnetId: !Ref winSN
+      Tags:
+          - Key: Name
+            Value: WindowsNatGW
+  NatIP:
+    Type: "AWS::EC2::EIP"
+    DependsOn: winVPC
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: WindowsNatIP
+
+  winSG:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      VpcId: !Ref winVPC
+      GroupDescription: Enable RDP access via port 3389
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3389
+          ToPort: 3389
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 5986
+          ToPort: 5987
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: WindowsSG
+  winEC2:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      ImageId: !FindInMap
+        - RegionAmi
+        - !Ref "AWS::Region"
+        - ami
+      InstanceType: !Ref instanceType
+      KeyName: !Ref keyName
+      BlockDeviceMappings:
+          - DeviceName: /dev/sda1
+            Ebs:
+              VolumeSize: !Ref hdSize
+      SubnetId: !Ref winSN
+      SecurityGroupIds:
+      - !Ref winSG
+      UserData: !Ref userData
+      Tags:
+        - Key: Name
+          Value: WindowsEC2
