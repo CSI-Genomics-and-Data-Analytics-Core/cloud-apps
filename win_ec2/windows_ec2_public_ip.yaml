@@ -122,7 +122,6 @@ Resources:
       Tags:
         - Key: Name
           Value: WindowsNatIP
-
   winSG:
     Type: "AWS::EC2::SecurityGroup"
     Properties:
