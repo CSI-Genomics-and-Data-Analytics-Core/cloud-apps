@@ -1,0 +1,258 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Rstudio Server
+Parameters:
+  hdSize:
+    Type: Number
+    Default: 500
+    Description: Size of the HD in GB
+  instanceType:
+    Type: String
+    Default: r5.4xlarge
+    AllowedValues:
+      - r5.4xlarge
+      - r5.8xlarge
+      - c5.12xlarge
+      - c5.18xlarge
+    Description: EC2 instance type (r types are memory optimized, and c types are compute optimized)
+  keyName:
+    Type: "AWS::EC2::KeyPair::KeyName"
+    Description: Name of an existing EC2 KeyPair to enable access to the instance
+  username:
+    Type: String
+    Default: ""
+    Description: base user name for Rstudio Server
+  password:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: Password for the base user in the Rstudio Server
+Mappings:
+  RegionAmi:
+    ap-northeast-1:
+      ami: ami-09a81b370b76de6a2
+    ap-northeast-2:
+      ami: ami-086cae3329a3f7d75
+    ap-northeast-3:
+      ami: ami-0690c54203f5f67da
+    ap-south-1:
+      ami: ami-0287a05f0ef0e9d9a
+    ap-southeast-1:
+      ami: ami-078c1149d8ad719a7
+    ap-southeast-2:
+      ami: ami-0df4b2961410d4cff
+    ca-central-1:
+      ami: ami-06873c81b882339ac
+    eu-central-1:
+      ami: ami-06dd92ecc74fdfb36
+    eu-north-1:
+      ami: ami-0fe8bec493a81c7da
+    eu-west-1:
+      ami: ami-0694d931cee176e7d
+    eu-west-2:
+      ami: ami-0505148b3591e4c07
+    eu-west-3:
+      ami: ami-00983e8a26e4c9bd9
+    sa-east-1:
+      ami: ami-0b6c2d49148000cd5
+    us-east-1:
+      ami: ami-0fc5d935ebf8bc3bc
+    us-east-2:
+      ami: ami-0e83be366243f524a
+    us-west-1:
+      ami: ami-0cbd40f694b804622
+    us-west-2:
+      ami: ami-0efcece6bed30fd98
+
+Resources:
+  rstudioVPC:
+    Type: "AWS::EC2::VPC"
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      Tags:
+        - Key: Name
+          Value: RstudioVPC
+
+  rstudioSN:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref rstudioVPC
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+          - Key: Name
+            Value: RstudioSubnet
+  rstudioIG:
+    Type: "AWS::EC2::InternetGateway"
+    Properties:
+      Tags:
+        - Key: Name
+          Value: RstudioIG
+  IGtoInternet:
+    Type: "AWS::EC2::VPCGatewayAttachment"
+    Properties:
+      VpcId: !Ref rstudioVPC
+      InternetGatewayId: !Ref rstudioIG
+  rstudioRT:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref rstudioVPC
+      Tags:
+        - Key: Name
+          Value: RstudioRT
+  rstudioRoute:
+    Type: "AWS::EC2::Route"
+    DependsOn: IGtoInternet
+    Properties:
+      RouteTableId: !Ref rstudioRT
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref rstudioIG
+  rstudioSubnetRouteTableAssociation:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId: !Ref rstudioSN
+      RouteTableId: !Ref rstudioRT
+  NatGW:
+    Type: "AWS::EC2::NatGateway"
+    DependsOn: NatIP
+    Properties:
+      AllocationId: !GetAtt NatIP.AllocationId
+      SubnetId: !Ref rstudioSN
+      Tags:
+          - Key: Name
+            Value: RstudioNatGW
+  NatIP:
+    Type: "AWS::EC2::EIP"
+    DependsOn: rstudioVPC
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: RstudioNatIP
+  rstudioSG:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      VpcId: !Ref rstudioVPC
+      GroupDescription: Enable Server port
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: RstudioSG
+  rstudioEC2:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      ImageId: !FindInMap
+        - RegionAmi
+        - !Ref "AWS::Region"
+        - ami
+      InstanceType: !Ref instanceType
+      KeyName: !Ref keyName
+      BlockDeviceMappings:
+          - DeviceName: /dev/sda1
+            Ebs:
+              VolumeSize: !Ref hdSize
+      SubnetId: !Ref rstudioSN
+      SecurityGroupIds:
+      - !Ref rstudioSG
+      UserData:
+        Fn::Base64: !Sub
+          - |
+            #!/usr/bin/env bash
+            # Update repositories
+            sudo apt update
+            # Install R
+            sudo DEBIAN_FRONTEND=noninteractive sudo apt install r-base -y
+            # Install dependencies
+            sudo apt install gdebi-core -y
+            # Download RStudio
+            wget https://download2.rstudio.org/server/jammy/amd64/rstudio-server-2023.06.0-421-amd64.deb
+            # Install RStudio server
+            yes | sudo gdebi rstudio-server-2023.06.0-421-amd64.deb
+            
+            # Install firewalld
+            sudo apt install firewalld -y
+            sudo systemctl enable --now firewalld
+            # open ports 80 and 443
+            sudo firewall-cmd --add-service=http --permanent
+            sudo firewall-cmd --add-service=https --permanent
+            sudo firewall-cmd --reload
+            
+            # Setup PAM modules
+            sudo tee /etc/pam.d/rstudio > /dev/null <<EOF
+            auth      requisite      pam_succeed_if.so uid >= 500 quiet
+            auth      required       pam_unix.so nodelay
+            account   required       pam_unix.so
+            EOF
+            
+            # Install nginx
+            sudo apt install nginx -y
+            sudo systemctl enable --now nginx
+            
+            # Configure nginx
+            
+            sudo tee /etc/nginx/sites-available/default > /dev/null <<EOF
+            server {
+              location / {
+                proxy_pass http://localhost:8787;
+                proxy_http_version 1.1;
+                proxy_set_header Upgrade \$http_upgrade;
+                proxy_set_header Connection \$connection_upgrade;
+                    proxy_set_header Host \$host;
+                    proxy_set_header X-Real-IP \$remote_addr;
+                    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                    proxy_set_header X-Forwarded-Proto \$scheme;
+              }
+            }
+            EOF
+                        
+            sudo tee /etc/nginx/nginx.conf > /dev/null <<EOF
+            user www-data;
+            worker_processes auto;
+            pid /run/nginx.pid;
+            include /etc/nginx/modules-enabled/*.conf;
+            events {
+                worker_connections 768;
+            }
+            http {
+                sendfile on;
+                tcp_nopush on;
+                types_hash_max_size 2048;
+                include /etc/nginx/mime.types;
+                default_type application/octet-stream;
+                ssl_prefer_server_ciphers on;
+                access_log /var/log/nginx/access.log;
+                error_log /var/log/nginx/error.log;
+                map \$http_upgrade \$connection_upgrade {
+                  default upgrade;
+                  '' close;
+                }
+                gzip on;
+                include /etc/nginx/conf.d/*.conf;
+                include /etc/nginx/sites-enabled/*;
+            }
+            EOF
+            
+            sudo systemctl restart nginx
+            
+            # create first user
+            sudo useradd -m -s /bin/bash ${username}
+            echo -e "${username}:${password}" | sudo chpasswd
+          - username: !Ref username
+            password: !Ref password
+      Tags:
+        - Key: Name
+          Value: RstudioEC2
+Outputs:
+    rstudioURL:
+        Description: URL of the Rstudio Server
+        Value: !Sub http://${rstudioEC2.PublicIp}
+    userName:
+        Description: Username for Rstudio Server
+        Value: !Ref username
