@@ -3,7 +3,25 @@
 In this repository, we will keep code and procedures to deploy cloud applications that researchers might need.
 
 ## Windows GUI applications
-In some instances, users need to analyze data in a graphical user interface (GUI) application. For these cases, the folder `win_ec2` contains a cloud formation script to deploy a Windows server 2022 instance, that can be accessed using an RDP client.
+In some instances, users need to analyze data in an graphical user interface (GUI) application. For these cases, the folder `win_ec2` contains a cloud formation script to deploy a Windows server 2022 instance, that can be accessed using an RDP client.
 
-## RStudio Server
-RStudio Server is a web application that allows users to run RStudio in a web browser. This is useful for users that need to run R code in a remote server, but do not want to use the command line. In addition to basic resource allocation, the template requires the user to set a user name and password to create the first user to use the server. The template also allows ssh connections, using the private key from the key pair referenced in the template. As output of the stack, the public IP and the user name will be displayed.
+## Notes on getting the latest ami  
+AMI are usually fixed in the cloud formation templates, and they depend on the region the user is located in. The cloud formation templates used here select the AMI for the user's region, and that AMI es obtained from a map (dictionary) in the teplate file itself. The following commands were used to get Ubuntu and Windows AMIs. At this state, the output needs to be cleaned
+
+### Ubuntu
+```bash
+for region in $(aws account list-regions --no-cli-pager | jq '.Regions[].RegionName' | tr -d '"')
+do 
+    image=$(aws ssm get-parameters --names /aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id --region $region --no-cli-pager | jq '.Parameters[] | .Value')
+    echo "{\"$region\":$image}"
+ done
+```
+
+### Windows
+
+```bash
+for region in $(aws account list-regions --no-cli-pager | jq '.Regions[].RegionName' | tr -d '"')
+do
+    image=$(aws ssm get-parameters-by-path --path "/aws/service/ami-windows-latest" --region $region --no-cli-pager | jq '.Parameters[] | select(.Name | contains("/Windows_Server-2022-English-Full-Base")) | .Value')
+    echo "{\"$region\":$image}"; done
+```
