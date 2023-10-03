@@ -5,6 +5,9 @@ In this repository, we will keep code and procedures to deploy cloud application
 ## Windows GUI applications
 In some instances, users need to analyze data in an graphical user interface (GUI) application. For these cases, the folder `win_ec2` contains a cloud formation script to deploy a Windows server 2022 instance, that can be accessed using an RDP client.
 
+## Rstudio server
+The folder rstudio contains a cloudformation template to create the infrastructure needed to run an Rstudio server. In addition to resource allocation, we have to specify the username and password for the first user to use the server. More users can be added by connecting to the instance via SSH using the private key from the key pair referenced in the cloudformation template.
+
 ## Notes on getting the latest ami  
 AMI are usually fixed in the cloud formation templates, and they depend on the region the user is located in. The cloud formation templates used here select the AMI for the user's region, and that AMI es obtained from a map (dictionary) in the teplate file itself. The following commands were used to get Ubuntu and Windows AMIs. At this state, the output needs to be cleaned
 
