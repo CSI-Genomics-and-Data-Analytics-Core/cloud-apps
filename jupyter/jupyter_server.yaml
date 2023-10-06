@@ -1,0 +1,187 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Jupyter Server
+Parameters:
+  hdSize:
+    Type: Number
+    Default: 500
+    Description: Size of the HD in GB
+  instanceType:
+    Type: String
+    Default: r5.4xlarge
+    AllowedValues:
+      - r5.4xlarge
+      - r5.8xlarge
+      - c5.12xlarge
+      - c5.18xlarge
+    Description: EC2 instance type (r types are memory optimized, and c types are compute optimized)
+  keyName:
+    Type: "AWS::EC2::KeyPair::KeyName"
+    Description: Name of an existing EC2 KeyPair to enable access to the instance
+  username:
+    Type: String
+    Default: ""
+    Description: admin user name for Jupyter Server
+  password:
+    Type: String
+    NoEcho: true
+    MinLength: 8
+    Description: Password for the admin user in the Jupyter Server
+Mappings:
+  RegionAmi:
+    ap-northeast-1:
+      ami: ami-09a81b370b76de6a2
+    ap-northeast-2:
+      ami: ami-086cae3329a3f7d75
+    ap-northeast-3:
+      ami: ami-0690c54203f5f67da
+    ap-south-1:
+      ami: ami-0287a05f0ef0e9d9a
+    ap-southeast-1:
+      ami: ami-078c1149d8ad719a7
+    ap-southeast-2:
+      ami: ami-0df4b2961410d4cff
+    ca-central-1:
+      ami: ami-06873c81b882339ac
+    eu-central-1:
+      ami: ami-06dd92ecc74fdfb36
+    eu-north-1:
+      ami: ami-0fe8bec493a81c7da
+    eu-west-1:
+      ami: ami-0694d931cee176e7d
+    eu-west-2:
+      ami: ami-0505148b3591e4c07
+    eu-west-3:
+      ami: ami-00983e8a26e4c9bd9
+    sa-east-1:
+      ami: ami-0b6c2d49148000cd5
+    us-east-1:
+      ami: ami-0fc5d935ebf8bc3bc
+    us-east-2:
+      ami: ami-0e83be366243f524a
+    us-west-1:
+      ami: ami-0cbd40f694b804622
+    us-west-2:
+      ami: ami-0efcece6bed30fd98
+
+Resources:
+  jupyterVPC:
+    Type: "AWS::EC2::VPC"
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      Tags:
+        - Key: Name
+          Value: JupyterVPC
+
+  jupyterSN:
+    Type: "AWS::EC2::Subnet"
+    Properties:
+      VpcId: !Ref jupyterVPC
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+          - Key: Name
+            Value: JupyterSubnet
+  jupyterIG:
+    Type: "AWS::EC2::InternetGateway"
+    Properties:
+      Tags:
+        - Key: Name
+          Value: JupyterIG
+  IGtoInternet:
+    Type: "AWS::EC2::VPCGatewayAttachment"
+    Properties:
+      VpcId: !Ref jupyterVPC
+      InternetGatewayId: !Ref jupyterIG
+  jupyterRT:
+    Type: "AWS::EC2::RouteTable"
+    Properties:
+      VpcId: !Ref jupyterVPC
+      Tags:
+        - Key: Name
+          Value: JupyterRT
+  jupyterRoute:
+    Type: "AWS::EC2::Route"
+    DependsOn: IGtoInternet
+    Properties:
+      RouteTableId: !Ref jupyterRT
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref jupyterIG
+  jupyterSubnetRouteTableAssociation:
+    Type: "AWS::EC2::SubnetRouteTableAssociation"
+    Properties:
+      SubnetId: !Ref jupyterSN
+      RouteTableId: !Ref jupyterRT
+  NatGW:
+    Type: "AWS::EC2::NatGateway"
+    DependsOn: NatIP
+    Properties:
+      AllocationId: !GetAtt NatIP.AllocationId
+      SubnetId: !Ref jupyterSN
+      Tags:
+          - Key: Name
+            Value: JupyterNatGW
+  NatIP:
+    Type: "AWS::EC2::EIP"
+    DependsOn: jupyterVPC
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: JupyterNatIP
+  jupyterSG:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      VpcId: !Ref jupyterVPC
+      GroupDescription: Enable Server port
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: JupyterSG
+  jupyterEC2:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      ImageId: !FindInMap
+        - RegionAmi
+        - !Ref "AWS::Region"
+        - ami
+      InstanceType: !Ref instanceType
+      KeyName: !Ref keyName
+      BlockDeviceMappings:
+          - DeviceName: /dev/sda1
+            Ebs:
+              VolumeSize: !Ref hdSize
+      SubnetId: !Ref jupyterSN
+      SecurityGroupIds:
+      - !Ref jupyterSG
+      UserData:
+        Fn::Base64: !Sub
+          - |
+            #!/usr/bin/env bash
+            # create first user
+            sudo useradd -m -s /bin/bash -G sudo ${username}
+            sudo echo -e "${username}:${password}" | sudo chpasswd            
+            curl -L https://tljh.jupyter.org/bootstrap.py | sudo python3 - --admin ${username}
+          - username: !Ref username
+            password: !Ref password
+      Tags:
+        - Key: Name
+          Value: JupyterEC2
+Outputs:
+    jupyterURL:
+        Description: URL of the Jupyter Server
+        Value: !Sub http://${jupyterEC2.PublicIp}
+    userName:
+        Description: Admin username for Jupyter Server
+        Value: !Ref username
