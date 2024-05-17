@@ -7,8 +7,9 @@ Parameters:
     Description: Size of the HD in GB
   instanceType:
     Type: String
-    Default: r5.4xlarge
+    Default: t2.large
     AllowedValues:
+      - t2.large
       - r5.4xlarge
       - r5.8xlarge
       - c5.12xlarge
@@ -20,12 +21,12 @@ Parameters:
     Description: Name of an existing/new EC2 KeyPair to enable access to the instance
   username:
     Type: String
-    Default: ""
+    Default: "mani"
     Description: base user name for Rstudio Server
   password:
     Type: String
     NoEcho: true
-    Default: ""
+    Default: "test@123"
     Description: Password for the base user in the Rstudio Server
 Mappings:
   RegionAmi:
@@ -119,15 +120,6 @@ Resources:
     Properties:
       SubnetId: !Ref rstudioSN
       RouteTableId: !Ref rstudioRT
-  NatGW:
-    Type: "AWS::EC2::NatGateway"
-    DependsOn: NatIP
-    Properties:
-      AllocationId: !GetAtt NatIP.AllocationId
-      SubnetId: !Ref rstudioSN
-      Tags:
-          - Key: Name
-            Value: RstudioNatGW
   NatIP:
     Type: "AWS::EC2::EIP"
     DependsOn: rstudioVPC

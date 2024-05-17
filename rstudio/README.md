@@ -12,10 +12,11 @@ When deploying the template, we need to specify the following parameters:
 This template uses the Ubuntu 22.04 server AMI available for the region where the template is deployed.
 
 # Using AWS CLI
-
+```shell
 aws cloudformation create-stack --stack-name RStudioStack --template-body file://<local file path to server.yaml> --tags Key=AppManagerCFNStackKey,Value=RStudioStack
 
 aws cloudformation describe-stacks --stack-name RStudioStack  --query "Stacks[0].Outputs"
+```
 
 # Access RStudio
 
