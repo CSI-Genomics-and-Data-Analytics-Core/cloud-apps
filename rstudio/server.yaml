@@ -15,8 +15,9 @@ Parameters:
       - c5.18xlarge
     Description: EC2 instance type (r types are memory optimized, and c types are compute optimized)
   keyName:
-    Type: "AWS::EC2::KeyPair::KeyName"
-    Description: Name of an existing EC2 KeyPair to enable access to the instance
+    Type: "String"
+    Default: "rstudiokeypair"
+    Description: Name of an existing/new EC2 KeyPair to enable access to the instance
   username:
     Type: String
     Default: ""
@@ -64,6 +65,14 @@ Mappings:
       ami: ami-0efcece6bed30fd98
 
 Resources:
+  rstudioKeyPair:
+    Type: "AWS::EC2::KeyPair"
+    Properties:
+      KeyName: !Ref keyName
+      KeyType: "rsa"
+      Tags:
+        - Key: Name
+          Value: !Ref keyName
   rstudioVPC:
     Type: "AWS::EC2::VPC"
     Properties:
@@ -71,7 +80,6 @@ Resources:
       Tags:
         - Key: Name
           Value: RstudioVPC
-
   rstudioSN:
     Type: "AWS::EC2::Subnet"
     Properties:
@@ -139,6 +147,10 @@ Resources:
           ToPort: 80
           CidrIp: 0.0.0.0/0
         - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
           FromPort: 22
           ToPort: 22
           CidrIp: 0.0.0.0/0
@@ -172,9 +184,9 @@ Resources:
             # Install dependencies
             sudo apt install gdebi-core -y
             # Download RStudio
-            wget https://download2.rstudio.org/server/jammy/amd64/rstudio-server-2023.06.0-421-amd64.deb
+            wget https://download2.rstudio.org/server/jammy/amd64/rstudio-server-2024.04.0-735-amd64.deb
             # Install RStudio server
-            yes | sudo gdebi rstudio-server-2023.06.0-421-amd64.deb
+            yes | sudo gdebi rstudio-server-2024.04.0-735-amd64.deb
             
             # Install firewalld
             sudo apt install firewalld -y
@@ -189,6 +201,15 @@ Resources:
             auth      requisite      pam_succeed_if.so uid >= 500 quiet
             auth      required       pam_unix.so nodelay
             account   required       pam_unix.so
+            EOF
+
+            # create user group
+            sudo groupadd rstudio-users
+
+            # Setup User Restriction
+            sudo tee -a /etc/rstudio/rserver.conf > /dev/null <<EOF
+            auth-required-user-group=admins,rstudio-users
+            auth-minimum-user-id=100
             EOF
             
             # Install nginx
@@ -240,10 +261,18 @@ Resources:
             EOF
             
             sudo systemctl restart nginx
-            
+          
             # create first user
             sudo useradd -m -s /bin/bash ${username}
             echo -e "${username}:${password}" | sudo chpasswd
+            sudo usermod -aG rstudio-users ${username}
+
+            # Install certbot
+            sudo snap install core
+            sudo snap refresh core
+            sudo snap install --classic certbot
+            sudo ln -s /snap/bin/certbot /usr/bin/certbot
+
           - username: !Ref username
             password: !Ref password
       Tags:
@@ -256,3 +285,6 @@ Outputs:
     userName:
         Description: Username for Rstudio Server
         Value: !Ref username
+    keyPairName:
+        Description: KeyName for Rstudio Server
+        Value: !Ref keyName
